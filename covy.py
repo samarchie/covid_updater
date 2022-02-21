@@ -17,14 +17,11 @@ path.append(r"R:\admin\cody")
 
 from cody import post_message_to_slack, post_file_to_slack
 
-from logging import basicConfig, getLogger, ERROR
-basicConfig(
-    format='%(asctime)s %(levelname)-8s %(message)s',
-    level=ERROR,
-    datefmt='%d-%m-%Y %H:%M:%S')
+from logging import basicConfig, INFO, getLogger
+basicConfig(format='%(asctime)-35s %(message)s', level=INFO, datefmt='%a %d %b %Y, %I:%M:%S %p')
 logger = getLogger(__name__)
 
-MINUTES_BETWEEN_SCRAPING = 15
+MINUTES_BETWEEN_SCRAPING = 10
 MOH_API_URL = "https://api.integration.covid19.health.nz/locations/v1/current-locations-of-interest"
 UC_URL = "https://www.canterbury.ac.nz/covid-19/locations/"
 
@@ -57,7 +54,7 @@ def update_uc_locations():
 
     if exists(LAST_UC_LOCATIONS_FILEPATH):
         changed_locations = check_for_changes(current_locations, LAST_UC_LOCATIONS_FILEPATH)
-        if changed_locations == None:
+        if len(changed_locations) == 0:
             # Break the program as no changes detected
             return None
     else:
@@ -94,16 +91,19 @@ def update_moh_locations():
     locations_of_interest_in_city = [ location for location in all_locations_of_interest if location["location"]["city"] == CITY_OF_INTEREST]
     _ = [ location.update(location["location"]) for location in  locations_of_interest_in_city ]
 
-    current_locations = DataFrame(locations_of_interest_in_city).drop(columns=["location"])
+    current_locations = DataFrame(locations_of_interest_in_city)
+    current_locations = current_locations[["eventName", "address", "startDateTime", "endDateTime", "exposureType"]]
+    
+    print("1")
 
-    if exists(LAST_MOH_LOCATIONS_FILEPATH):   
+    if exists(LAST_MOH_LOCATIONS_FILEPATH): 
         changed_locations = check_for_changes(current_locations, LAST_MOH_LOCATIONS_FILEPATH)
-        if changed_locations == None:
+        if len(changed_locations) == 0:
             # Break the program
             return None            
     else:
         # This is the first time running it and all current locations are new!
-        changed_locations = current_locations
+        changed_locations = current_locations.copy()
         changed_locations["Status"] = ["New Location"] * len(changed_locations)
 
     # Turn the nasty strings into datetime objects so that we can write a nice string of the date and times.
@@ -111,7 +111,7 @@ def update_moh_locations():
     changed_locations["endDateTime"] = [datetime.strptime(value.replace("T", " ").replace("Z", ""), "%Y-%m-%d %H:%M:%S.%f") for value in changed_locations["endDateTime"]]
     changed_locations["Date"] = [datetime.strftime(start_value, "%A/%m/%Y") for start_value in changed_locations["startDateTime"]]
     changed_locations["Time"] = ["{} - {}".format(datetime.strftime(start_value, "%I:%M%p"), datetime.strftime(end_value, "%I:%M%p")).lower() for start_value, end_value in zip(changed_locations["startDateTime"], changed_locations["endDateTime"])]
-
+    print("3")
     # Clean up the changed locations
     changed_locations = changed_locations[["Status", "eventName", "address", "Date", "Time", "exposureType"]]
     changed_locations.rename(columns={"eventName":"Place", "address":"Address", "exposureType":"Exposure"}, inplace=True)
@@ -119,8 +119,8 @@ def update_moh_locations():
 
     # Save the current cases in the previous file spot to replace it
     with open(LAST_MOH_LOCATIONS_FILEPATH, "wb") as last_locations_file:
-        current_locations.drop(columns=["Status"]).to_excel(last_locations_file, index=False)
-
+        current_locations.to_excel(last_locations_file, index=False)
+    print("4")
     # Create the markdown file of the changed locations
     changed_locations = wrap_dataframe_rows(changed_locations)
     with open("updated moh locations.md", "w", encoding="utf-8") as file:
@@ -132,7 +132,6 @@ def update_moh_locations():
     post_file_to_slack("#covid_updates", ["updated moh locations.md"], "", greet=False)
 
 
-
 def check_for_changes(current_locations, previous_locations_fp):
     """Assess the current_locations DataFrame against the previous_locations DataFrame, and return any changes in the current_locations DataFrame."""
 
@@ -140,6 +139,8 @@ def check_for_changes(current_locations, previous_locations_fp):
     with open(previous_locations_fp, "rb") as last_locations_file:
         previous_locations = read_excel(last_locations_file)
         last_locations_file.close()
+
+    previous_locations = previous_locations[current_locations.columns]
 
     # Test to see if the same as previous data
     if not previous_locations.equals(current_locations):
@@ -154,8 +155,8 @@ def check_for_changes(current_locations, previous_locations_fp):
         return changed_locations
     
     else:
-        # No updates found so stop the program
-        return None
+        # No updates found so send back empty DataFrame
+        return DataFrame()
 
 
 def wrap_dataframe_rows(changed_locations, width_limit=150):
@@ -179,12 +180,11 @@ def wrap_dataframe_rows(changed_locations, width_limit=150):
     return changed_locations
 
 
-
-
 def update():
     """Attempt to find changes to the locations of interest at both the University of Canterbury's campus and in Chhristchurch according to the Ministry of Health."""
     try:
         update_uc_locations()
+        logger.info("Scraping successful for UC locations")
     except Exception as error:
         error_string = f"Scraping failed for UC locations due to: {error}"
         logger.info(error_string)
@@ -192,21 +192,24 @@ def update():
 
     try:
         update_moh_locations()
+        logger.info("Scraping successful for MOH locations")
     except Exception as error:
         error_string = f"Scraping failed for MOH locations due to: {error}"
         logger.info(error_string)
         post_message_to_slack("#covid_updates", "Failure", "Covid Locations of Interest Update", message=error_string)
 
 
-
 def main():
     # Schedule and perform the function for every minute
     every(1).minutes.do(update)
     while True:
+        print("Waiting...", end="\r")
         if localtime().tm_min % MINUTES_BETWEEN_SCRAPING == 0:
+            print("Running!", end="\r")
             # Then it's time to update!
             run_pending()
             sleep(61)
+
 
 if __name__ == "__main__":
     main()
