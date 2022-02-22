@@ -94,8 +94,6 @@ def update_moh_locations():
     current_locations = DataFrame(locations_of_interest_in_city)
     current_locations = current_locations[["eventName", "address", "startDateTime", "endDateTime", "exposureType"]]
     
-    print("1")
-
     if exists(LAST_MOH_LOCATIONS_FILEPATH): 
         changed_locations = check_for_changes(current_locations, LAST_MOH_LOCATIONS_FILEPATH)
         if len(changed_locations) == 0:
@@ -109,9 +107,9 @@ def update_moh_locations():
     # Turn the nasty strings into datetime objects so that we can write a nice string of the date and times.
     changed_locations["startDateTime"] = [datetime.strptime(value.replace("T", " ").replace("Z", ""), "%Y-%m-%d %H:%M:%S.%f") for value in changed_locations["startDateTime"]]
     changed_locations["endDateTime"] = [datetime.strptime(value.replace("T", " ").replace("Z", ""), "%Y-%m-%d %H:%M:%S.%f") for value in changed_locations["endDateTime"]]
-    changed_locations["Date"] = [datetime.strftime(start_value, "%A/%m/%Y") for start_value in changed_locations["startDateTime"]]
+    changed_locations["Date"] = [datetime.strftime(start_value, "%d/%m/%Y") for start_value in changed_locations["startDateTime"]]
     changed_locations["Time"] = ["{} - {}".format(datetime.strftime(start_value, "%I:%M%p"), datetime.strftime(end_value, "%I:%M%p")).lower() for start_value, end_value in zip(changed_locations["startDateTime"], changed_locations["endDateTime"])]
-    print("3")
+
     # Clean up the changed locations
     changed_locations = changed_locations[["Status", "eventName", "address", "Date", "Time", "exposureType"]]
     changed_locations.rename(columns={"eventName":"Place", "address":"Address", "exposureType":"Exposure"}, inplace=True)
@@ -120,7 +118,7 @@ def update_moh_locations():
     # Save the current cases in the previous file spot to replace it
     with open(LAST_MOH_LOCATIONS_FILEPATH, "wb") as last_locations_file:
         current_locations.to_excel(last_locations_file, index=False)
-    print("4")
+
     # Create the markdown file of the changed locations
     changed_locations = wrap_dataframe_rows(changed_locations)
     with open("updated moh locations.md", "w", encoding="utf-8") as file:
@@ -208,6 +206,7 @@ def main():
             print("Running!", end="\r")
             # Then it's time to update!
             run_pending()
+            print("Waiting...", end="\r")
             sleep(61)
 
 

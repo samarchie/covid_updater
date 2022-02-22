@@ -16,13 +16,13 @@
 
 ### About Covy
 
-Cody uses two API's (Ministry of Health NZ & Slack) to create notifications of any updates to daily cases or any locations of interest. Previously fetched data is temporily stored on disk to check for any new updates. 
+Cody uses two API's (Ministry of Health NZ & Slack) as well as scraping data from the University of Canterbury to create notifications of any updates to locations of interest. Previously fetched data is temporily stored on disk to check for any new updates. 
 
 ### Getting Started
 
-1. Create and install [Cody](https://github.com/samarchie/cody) as per the instructions on the repository.
+1. Create and install [Cody](https://github.com/samarchie/cody) as per the instructions on the repository website.
 
-2. In your project virtual environmnet or global Python environment, install the required packages in ```requirements.txt```.
+2. In your project virtual environment or global Python environment, install the required packages in ```requirements.txt```.
 
 3. In a terminal with the working directory set as the covy folder, simply run:
 ```sh
