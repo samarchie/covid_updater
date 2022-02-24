@@ -1,7 +1,7 @@
 from requests import get
-from pandas import DataFrame, concat, read_excel
+from pandas import DataFrame, concat, read_csv
 from math import floor
-from os import chdir
+from os import chdir, remove
 from os.path import exists
 from sys import path
 from time import localtime, sleep
@@ -26,8 +26,8 @@ MOH_API_URL = "https://api.integration.covid19.health.nz/locations/v1/current-lo
 UC_URL = "https://www.canterbury.ac.nz/covid-19/locations/"
 
 CITY_OF_INTEREST = "Christchurch"
-LAST_MOH_LOCATIONS_FILEPATH = "last_moh_locations.xlsx"
-LAST_UC_LOCATIONS_FILEPATH = "last_uc_locations.xlsx"
+LAST_MOH_LOCATIONS_FILEPATH = "last_moh_locations.csv"
+LAST_UC_LOCATIONS_FILEPATH = "last_uc_locations.csv"
 
 
 def update_uc_locations():
@@ -52,6 +52,7 @@ def update_uc_locations():
         current_locations = concat([current_locations, DataFrame(data=processed_rows, columns=column_names)])
     current_locations.reset_index(drop=True, inplace=True)
 
+
     if exists(LAST_UC_LOCATIONS_FILEPATH):
         changed_locations = check_for_changes(current_locations, LAST_UC_LOCATIONS_FILEPATH)
         if len(changed_locations) == 0:
@@ -59,26 +60,32 @@ def update_uc_locations():
             return None
     else:
         # This is the first time running it and all current locations are new!
-        changed_locations = current_locations
+        changed_locations = current_locations.copy()
         changed_locations["Status"] = ["New Location"] * len(changed_locations)
-
-    # Clean up the changed locations
-    changed_locations = changed_locations[["Status", "Location", "Date", "Time", "Categorisation", "Added"]]
-    changed_locations.reset_index(drop=True, inplace=True)
 
     # Save the current cases in the previous file spot to replace it
     with open(LAST_UC_LOCATIONS_FILEPATH, "wb") as last_locations_file:
-        current_locations.drop(columns=["Status"]).to_excel(last_locations_file, index=False)
+        if len(current_locations) > 1:
+            current_locations.to_csv(last_locations_file, index=False)
+        else:
+            last_locations_file.close()
+            remove(LAST_UC_LOCATIONS_FILEPATH)
 
-    # Create the markdown file of the changed locations
-    changed_locations = wrap_dataframe_rows(changed_locations)
-    with open("updated uc locations.md", "w", encoding="utf-8") as file:
-        _ = file.write(changed_locations.to_markdown(index=False, tablefmt="fancy_grid"))
+    if len(changed_locations) > 1:
+        # Clean up the changed locations
+        changed_locations = changed_locations[["Status", "Location", "Date", "Time", "Categorisation", "Added"]]
+        changed_locations.reset_index(drop=True, inplace=True)
 
-    # Notify
-    message = f"There has been an update in the locations of interest at the University of Canterbury. For further details, please refer to the <{UC_URL}|University of Canterbury's COVID website>."
-    post_message_to_slack("#covid_updates", message_type="Information", identifier="Covid Locations of Interest Update", message=message)
-    post_file_to_slack("#covid_updates", ["updated uc locations.md"], "", greet=False)
+        # Create the markdown file of the changed locations
+        changed_locations = wrap_dataframe_rows(changed_locations)
+        changed_locations = changed_locations.sort_values(by="Date", ascending=False).reset_index(drop=True)
+        with open("updated uc locations.md", "w", encoding="utf-8") as file:
+            _ = file.write(changed_locations.to_markdown(index=False, tablefmt="fancy_grid"))
+
+        # Notify
+        message = f"There has been an update in the locations of interest at the University of Canterbury. For further details, please refer to the <{UC_URL}|University of Canterbury's COVID website>."
+        post_message_to_slack("#covid_updates", message_type="Information", identifier="Covid Locations of Interest Update", message=message)
+        post_file_to_slack("#covid_updates", ["updated uc locations.md"], "", greet=False)
 
 
 def update_moh_locations():
@@ -92,8 +99,10 @@ def update_moh_locations():
     _ = [ location.update(location["location"]) for location in  locations_of_interest_in_city ]
 
     current_locations = DataFrame(locations_of_interest_in_city)
-    current_locations = current_locations[["eventName", "address", "startDateTime", "endDateTime", "exposureType"]]
+    if len(current_locations) > 0:
+        current_locations = current_locations[["eventName", "address", "startDateTime", "endDateTime", "exposureType"]]
     
+
     if exists(LAST_MOH_LOCATIONS_FILEPATH): 
         changed_locations = check_for_changes(current_locations, LAST_MOH_LOCATIONS_FILEPATH)
         if len(changed_locations) == 0:
@@ -104,30 +113,38 @@ def update_moh_locations():
         changed_locations = current_locations.copy()
         changed_locations["Status"] = ["New Location"] * len(changed_locations)
 
-    # Turn the nasty strings into datetime objects so that we can write a nice string of the date and times.
-    changed_locations["startDateTime"] = [datetime.strptime(value.replace("T", " ").replace("Z", ""), "%Y-%m-%d %H:%M:%S.%f") for value in changed_locations["startDateTime"]]
-    changed_locations["endDateTime"] = [datetime.strptime(value.replace("T", " ").replace("Z", ""), "%Y-%m-%d %H:%M:%S.%f") for value in changed_locations["endDateTime"]]
-    changed_locations["Date"] = [datetime.strftime(start_value, "%d/%m/%Y") for start_value in changed_locations["startDateTime"]]
-    changed_locations["Time"] = ["{} - {}".format(datetime.strftime(start_value, "%I:%M%p"), datetime.strftime(end_value, "%I:%M%p")).lower() for start_value, end_value in zip(changed_locations["startDateTime"], changed_locations["endDateTime"])]
-
-    # Clean up the changed locations
-    changed_locations = changed_locations[["Status", "eventName", "address", "Date", "Time", "exposureType"]]
-    changed_locations.rename(columns={"eventName":"Place", "address":"Address", "exposureType":"Exposure"}, inplace=True)
-    changed_locations.reset_index(drop=True, inplace=True)
 
     # Save the current cases in the previous file spot to replace it
     with open(LAST_MOH_LOCATIONS_FILEPATH, "wb") as last_locations_file:
-        current_locations.to_excel(last_locations_file, index=False)
+        if len(current_locations) > 1:
+            current_locations.to_csv(last_locations_file, index=False)
+        else:
+            last_locations_file.close()
+            remove(LAST_MOH_LOCATIONS_FILEPATH)
 
-    # Create the markdown file of the changed locations
-    changed_locations = wrap_dataframe_rows(changed_locations)
-    with open("updated moh locations.md", "w", encoding="utf-8") as file:
-        _ = file.write(changed_locations.to_markdown(index=False, tablefmt="fancy_grid"))
+    if len(changed_locations) > 1:
+        # Turn the nasty strings into datetime objects so that we can write a nice string of the date and times.
+        changed_locations["startDateTime"] = [datetime.strptime(value.replace("T", " ").replace("Z", ""), "%Y-%m-%d %H:%M:%S.%f") for value in changed_locations["startDateTime"]]
+        changed_locations["endDateTime"] = [datetime.strptime(value.replace("T", " ").replace("Z", ""), "%Y-%m-%d %H:%M:%S.%f") for value in changed_locations["endDateTime"]]
+        changed_locations["Date"] = [datetime.strftime(start_value, "%d/%m/%Y") for start_value in changed_locations["startDateTime"]]
+        changed_locations["Time"] = ["{} - {}".format(datetime.strftime(start_value, "%I:%M%p"), datetime.strftime(end_value, "%I:%M%p")).lower() for start_value, end_value in zip(changed_locations["startDateTime"], changed_locations["endDateTime"])]
 
-    # Notify
-    message = f"There has been an update in the locations of interest for {CITY_OF_INTEREST}. For further details, please refer to the <https://www.health.govt.nz/covid-19-novel-coronavirus/covid-19-health-advice-public/covid-19-information-close-contacts/covid-19-contact-tracing-locations-interest| Ministry of Health's website>."
-    post_message_to_slack("#covid_updates", message_type="Information", identifier="Covid Locations of Interest Update", message=message)
-    post_file_to_slack("#covid_updates", ["updated moh locations.md"], "", greet=False)
+        # Clean up the changed locations
+        changed_locations = changed_locations[["Status", "eventName", "address", "Date", "Time", "exposureType"]]
+        changed_locations.rename(columns={"eventName":"Place", "address":"Address", "exposureType":"Exposure"}, inplace=True)
+        changed_locations.reset_index(drop=True, inplace=True)
+
+
+        # Create the markdown file of the changed locations
+        changed_locations = wrap_dataframe_rows(changed_locations)
+        changed_locations = changed_locations.sort_values(by="Date", ascending=False).reset_index(drop=True)
+        with open("updated moh locations.md", "w", encoding="utf-8") as file:
+            _ = file.write(changed_locations.to_markdown(index=False, tablefmt="fancy_grid"))
+
+        # Notify
+        message = f"There has been an update in the locations of interest for {CITY_OF_INTEREST}. For further details, please refer to the <https://www.health.govt.nz/covid-19-novel-coronavirus/covid-19-health-advice-public/covid-19-information-close-contacts/covid-19-contact-tracing-locations-interest| Ministry of Health's website>."
+        post_message_to_slack("#covid_updates", message_type="Information", identifier="Covid Locations of Interest Update", message=message)
+        post_file_to_slack("#covid_updates", ["updated moh locations.md"], "", greet=False)
 
 
 def check_for_changes(current_locations, previous_locations_fp):
@@ -135,9 +152,14 @@ def check_for_changes(current_locations, previous_locations_fp):
 
     # Open the previous file
     with open(previous_locations_fp, "rb") as last_locations_file:
-        previous_locations = read_excel(last_locations_file)
+        previous_locations = read_csv(last_locations_file)
         last_locations_file.close()
 
+    if len(current_locations) == 0:
+        changed_locations = previous_locations[["eventName", "address", "startDateTime", "endDateTime", "exposureType"]]
+        changed_locations["Status"] = "Removed Location"
+        return changed_locations
+    
     previous_locations = previous_locations[current_locations.columns]
 
     # Test to see if the same as previous data
@@ -145,10 +167,9 @@ def check_for_changes(current_locations, previous_locations_fp):
         # Find the overlaps which is changed_locations
         changed_locations = concat([previous_locations, current_locations]).drop_duplicates(keep=False)
         # Convert the old dataframess to numpy arrays to check if in them
-        previous_locations_array = previous_locations.to_numpy()
         current_locations_array = current_locations.to_numpy()
         # Assess if the change is new or removed by seeing which old dataframe it is in
-        changed_locations["Status"] = ["New Location" if row in current_locations_array and row not in previous_locations_array else "Removed Location" for row in changed_locations.to_numpy()]
+        changed_locations["Status"] = ["New Location" for row in changed_locations.to_numpy() if row in current_locations_array]
         changed_locations.sort_values("Status", inplace=True)
         return changed_locations
     
@@ -158,7 +179,7 @@ def check_for_changes(current_locations, previous_locations_fp):
 
 
 def wrap_dataframe_rows(changed_locations, width_limit=150):
-    """Enforce a strict width limit on a DataFrame such that it can be printed out nicely. If the width of the DataFrame is over the limit, then the largest column is halved untill the limit is met. It assumes all dtypes are strings. New line characters are inserted into the strng to make the DataFrame reduce in width."""
+    """Enforce a strict width limit on a DataFrame such that it can be printed out nicely. If the width of the DataFrame is over the limit, then the largest column is halved untill the limit is met. It assumes all dtypes are strings. New line characters are inserted into the string to make the DataFrame reduce in width."""
 
     while len(changed_locations.to_markdown(index=False).split("\n")[0]) >= width_limit:
         column_line = changed_locations.to_markdown(index=False).split("\n")[0]
