@@ -1,9 +1,8 @@
 from requests import get
 from pandas import DataFrame, concat, read_csv
 from math import floor
-from os import chdir, remove
+from os import remove
 from os.path import exists
-from sys import path
 from time import localtime, sleep
 from textwrap import wrap
 from schedule import every, run_pending
@@ -11,12 +10,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from warnings import filterwarnings
 filterwarnings("ignore")
-
-chdir(r"\\file\Userss$\sar173\Home\My Documents\postgrad\covy")
-path.append(r"R:\admin\cody")
-
-from cody import post_message_to_slack, post_file_to_slack
-
+from slack import post_message, post_files
 from logging import basicConfig, INFO, getLogger
 basicConfig(format='%(asctime)-35s %(message)s', level=INFO, datefmt='%a %d %b %Y, %I:%M:%S %p')
 logger = getLogger(__name__)
@@ -84,8 +78,8 @@ def update_uc_locations():
 
         # Notify
         message = f"There has been an update in the locations of interest at the University of Canterbury. For further details, please refer to the <{UC_URL}|University of Canterbury's COVID website>."
-        post_message_to_slack("#covid_updates", message_type="Information", identifier="Covid Locations of Interest Update", message=message)
-        post_file_to_slack("#covid_updates", ["updated uc locations.md"], "", greet=False)
+        post_message("#covid_updates", message_type="Information", identifier="Covid Locations of Interest Update", message=message)
+        post_files("#covid_updates", ["updated uc locations.md"], "", greet=False)
 
 
 def update_moh_locations():
@@ -143,8 +137,8 @@ def update_moh_locations():
 
         # Notify
         message = f"There has been an update in the locations of interest for {CITY_OF_INTEREST}. For further details, please refer to the <https://www.health.govt.nz/covid-19-novel-coronavirus/covid-19-health-advice-public/covid-19-information-close-contacts/covid-19-contact-tracing-locations-interest| Ministry of Health's website>."
-        post_message_to_slack("#covid_updates", message_type="Information", identifier="Covid Locations of Interest Update", message=message)
-        post_file_to_slack("#covid_updates", ["updated moh locations.md"], "", greet=False)
+        post_message("#covid_updates", message_type="Information", identifier="Covid Locations of Interest Update", message=message)
+        post_files("#covid_updates", ["updated moh locations.md"], "", greet=False)
 
 
 def check_for_changes(current_locations, previous_locations_fp):
@@ -207,7 +201,7 @@ def update():
     except Exception as error:
         error_string = f"Scraping failed for UC locations due to: {error}"
         logger.info(error_string)
-        post_message_to_slack("#covid_updates", "Failure", "Covid Locations of Interest Update", message=error_string)
+        post_message("#covid_updates", "Failure", "Covid Locations of Interest Update", message=error_string)
 
     try:
         update_moh_locations()
@@ -215,7 +209,7 @@ def update():
     except Exception as error:
         error_string = f"Scraping failed for MOH locations due to: {error}"
         logger.info(error_string)
-        post_message_to_slack("#covid_updates", "Failure", "Covid Locations of Interest Update", message=error_string)
+        post_message("#covid_updates", "Failure", "Covid Locations of Interest Update", message=error_string)
 
 
 def main():
